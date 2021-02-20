@@ -132,7 +132,7 @@ try:
                    right=False, left=False, labelleft=False)
     fig.tight_layout(pad=0)
 
-
+    print(args.device, args.channels, args.samplerate)
     stream = sd.InputStream(
         device=args.device, channels=max(args.channels),
         samplerate=args.samplerate, callback=audio_callback)
