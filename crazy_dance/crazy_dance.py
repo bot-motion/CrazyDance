@@ -1,5 +1,5 @@
 """ Crazyflie quadcopter 'dances' to signals from a laptop's mic
-
+    and can be pushed around...
 """
 
 import logging
@@ -13,6 +13,7 @@ from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.log import LogConfig
 from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
 from cflib.positioning.motion_commander import MotionCommander
+from cflib.utils.multiranger import Multiranger
 
 import sounddevice as sd
 
@@ -41,72 +42,80 @@ pos_signal_cap = 0.1
 
 q = queue.Queue()
 
+def is_close(range):
+    MIN_DISTANCE = 0.25  # m
+
+    if range is None:
+        return False
+    else:
+        return range < MIN_DISTANCE
+
 
 def move_box_limit(scf):
+
+    body_x_cmd = 0.2
+    body_y_cmd = 0.1
+    max_vel = 0.2
+
     with MotionCommander(scf, default_height=DEFAULT_HEIGHT) as mc:
-        body_x_cmd = 0.2
-        body_y_cmd = 0.1
-        max_vel = 0.2
+        with Multiranger(scf) as multi_ranger:
 
-        while (1):
-            '''if position_estimate[0] > BOX_LIMIT:
-                mc.start_back()
-            elif position_estimate[0] < -BOX_LIMIT:
-                mc.start_forward()
-            '''
+            while (1):
+                if position_estimate[0] > BOX_LIMIT:
+                    body_x_cmd = -max_vel
+                elif position_estimate[0] < -BOX_LIMIT:
+                    body_x_cmd = max_vel
+                if position_estimate[1] > BOX_LIMIT:
+                    body_y_cmd = -max_vel
+                elif position_estimate[1] < -BOX_LIMIT:
+                    body_y_cmd = max_vel
 
-            if position_estimate[0] > BOX_LIMIT:
-                body_x_cmd = -max_vel
-            elif position_estimate[0] < -BOX_LIMIT:
-                body_x_cmd = max_vel
-            if position_estimate[1] > BOX_LIMIT:
-                body_y_cmd = -max_vel
-            elif position_estimate[1] < -BOX_LIMIT:
-                body_y_cmd = max_vel
+                mc.start_linear_motion(body_x_cmd, body_y_cmd, 0)
 
-            mc.start_linear_motion(body_x_cmd, body_y_cmd, 0)
-
-            time.sleep(0.1)
+                time.sleep(0.1)
 
 
 def dance(scf):
     global pos_signal_cap, vel_signal_cap, amplifier
+    
+    keep_flying = True
 
     with MotionCommander(scf, default_height=DEFAULT_HEIGHT) as mc:
+        with Multiranger(scf) as multi_ranger:
 
-        while (1):
-            if amplifier > 1000:
-                body_x_cmd = pos_signal_cap
-                body_y_cmd = 0.1
-            else:
-                body_x_cmd = 0.1
-                body_y_cmd = pos_signal_cap
-        
-            max_vel = vel_signal_cap
+            while keep_flying:
+                max_vel = vel_signal_cap
+                
+                if is_close(multi_ranger.up):
+                    keep_flying = False
 
+                if position_estimate[0] > BOX_LIMIT or is_close(multi_ranger.front):
+                    body_x_cmd = -max_vel
+                elif position_estimate[0] < -BOX_LIMIT or is_close(multi_ranger.back):
+                    body_x_cmd = max_vel
+                else:
+                    body_x_cmd = 0.1
 
-            if position_estimate[0] > BOX_LIMIT:
-                body_x_cmd = -max_vel
-            elif position_estimate[0] < -BOX_LIMIT:
-                body_x_cmd = max_vel
-            if position_estimate[1] > BOX_LIMIT:
-                body_y_cmd = -max_vel
-            elif position_estimate[1] < -BOX_LIMIT:
-                body_y_cmd = max_vel
+                if position_estimate[1] > BOX_LIMIT or is_close(multi_ranger.left):
+                    body_y_cmd = -max_vel
+                elif position_estimate[1] < -BOX_LIMIT or is_close(multi_ranger.right):
+                    body_y_cmd = max_vel
+                else:
+                    body_y_cmd = 0.1
 
-            if position_estimate[2] < MIN_HEIGHT:
-                body_z_cmd = 0.4
-            elif position_estimate[2] > MIN_HEIGHT and position_estimate[2] < 4 * MIN_HEIGHT:
-                body_z_cmd = pos_signal_cap
-            elif position_estimate[2] > 4 * MIN_HEIGHT:
-                body_z_cmd = -0.1
+                if position_estimate[2] < MIN_HEIGHT:
+                    body_z_cmd = 0.4
+                elif position_estimate[2] > MIN_HEIGHT and position_estimate[2] < 3 * MIN_HEIGHT:
+                    body_z_cmd = pos_signal_cap
+                elif position_estimate[2] > 3 * MIN_HEIGHT:
+                    body_z_cmd = -0.1
 
-            print("p_x = ", position_estimate[0], " p_y = ", position_estimate[1], " p_z = ", position_estimate[2])
-            print("v_x = ", body_x_cmd, " v_y = ", body_y_cmd, " v_z = ", body_z_cmd)
+                print("p_x = ", position_estimate[0], " p_y = ", position_estimate[1], " p_z = ", position_estimate[2])
+                print("v_x = ", body_x_cmd, " v_y = ", body_y_cmd, " v_z = ", body_z_cmd)
 
-            mc.start_linear_motion(body_x_cmd, body_y_cmd, body_z_cmd)
+                mc.start_linear_motion(body_x_cmd, body_y_cmd, body_z_cmd)
 
-            time.sleep(0.2)
+                time.sleep(0.1)
 
 
 def move_linear_simple(scf):
@@ -167,7 +176,7 @@ def audio_callback(indata, frames, time, status):
         return
 
     f_sample = 1
-    max_vel = 0.4
+    max_vel = 0.5
     min_vel = 0.1
     max_pos = 0.4
     min_pos = -0.4
